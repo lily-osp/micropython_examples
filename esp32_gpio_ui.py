@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
-from 07.EXTERNAL.esp32_as_external_gpio import GPIOControl, I2CControl, SPIControl, CommandParser, EventHandler
+from EXTERNAL.esp32_as_external_gpio import GPIOControl, I2CControl, SPIControl, CommandParser, EventHandler
 
 class ESP32GPIOUI:
     def __init__(self, root):
