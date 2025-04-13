@@ -1,5 +1,7 @@
 import time
-from machine import Pin, ADC, I2C, SPI, Timer
+from machine import Pin, ADC, DAC, I2C, SPI, Timer
+import machine
+machine.freq(160000000)
 
 # Constants for I2C pins
 I2C_SDA_PIN = 4  # GPIO4
@@ -62,6 +64,18 @@ class GPIOControl:
             value = adc.read()
             print(f"GPIO{pin}: {value}")
             return value
+        else:
+            print(f"Invalid GPIO pin: {pin}")
+
+    @staticmethod
+    def analog_write(pin, value):
+        if pin in GPIO_PINS:
+            if 0 <= value <= 255:
+                dac = DAC(Pin(pin))
+                dac.write(value)
+                print(f"GPIO{pin}: {value}")
+            else:
+                print("Analog write value must be between 0 and 255.")
         else:
             print(f"Invalid GPIO pin: {pin}")
 
@@ -134,6 +148,7 @@ class CommandParser:
             'digital_write': GPIOControl.digital_write,
             'digital_read': GPIOControl.digital_read,
             'analog_read': GPIOControl.analog_read,
+            'analog_write': GPIOControl.analog_write,
             'i2c_scan': I2CControl.i2c_scan,
             'i2c_read': I2CControl.i2c_read,
             'i2c_write': I2CControl.i2c_write,
@@ -177,7 +192,8 @@ class CommandParser:
         Available Commands:
         - digital_write(pin, value): Write digital value (0/1) to a GPIO pin.
         - digital_read(pin): Read digital value (0/1) from a GPIO pin.
-        - analog_read(pin): Read analog value (0-1023) from an ADC pin.
+        - analog_read(pin): Read analog value (0-4095) from an ADC pin.
+        - analog_write(pin, value): Write analog value (0-255) to a DAC pin.
         - i2c_scan(): Scan I2C bus and return detected addresses.
         - i2c_read(addr, nbytes): Read nbytes from I2C device at addr.
         - i2c_write(addr, data): Write data to I2C device at addr.
@@ -199,7 +215,7 @@ class EventHandler:
         self.timer = Timer(0)
 
     def handle_events(self):
-        print("ESP8266 GPIO Control Ready.")
+        print("ESP32 GPIO Control Ready.")
         self.commands.print_gpio_table()
         self.commands.print_help()
 
@@ -216,10 +232,10 @@ class EventHandler:
     def sleep_mode(self, mode):
         if mode == "light":
             print("Entering light sleep mode...")
-            time.sleep(5)  # Example duration for light sleep
+            machine.lightsleep()  # Enter light sleep mode
         elif mode == "deep":
             print("Entering deep sleep mode...")
-            time.sleep(10)  # Example duration for deep sleep
+            machine.deepsleep()  # Enter deep sleep mode
         else:
             print("Invalid sleep mode specified.")
 

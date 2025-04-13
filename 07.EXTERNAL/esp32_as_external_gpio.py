@@ -1,5 +1,7 @@
 import time
 from machine import Pin, ADC, DAC, I2C, SPI, Timer
+import machine
+machine.freq(240000000)
 
 # Constants for I2C pins
 I2C_SDA_PIN = 21  # GPIO21
@@ -27,6 +29,8 @@ GPIO_PINS = {
     17: {"Function": "Digital I/O, PWM, U2_TXD"},
     18: {"Function": "Digital I/O, PWM, VSPI_CLK"},
     19: {"Function": "Digital I/O, PWM, VSPI_MISO"},
+    21: {"Function": "Digital I/O, I2C SDA"},
+    22: {"Function": "Digital I/O, I2C SCL"},
     23: {"Function": "Digital I/O, PWM, VSPI_MOSI"},
     25: {"Function": "Digital I/O, ADC2, DAC1"},
     26: {"Function": "Digital I/O, ADC2, DAC1"},
@@ -236,10 +240,10 @@ class EventHandler:
     def sleep_mode(self, mode):
         if mode == "light":
             print("Entering light sleep mode...")
-            time.sleep(5)  # Example duration for light sleep
+            machine.lightsleep()  # Enter light sleep mode
         elif mode == "deep":
             print("Entering deep sleep mode...")
-            time.sleep(10)  # Example duration for deep sleep
+            machine.deepsleep()  # Enter deep sleep mode
         else:
             print("Invalid sleep mode specified.")
 
