@@ -3,7 +3,11 @@ import time
 
 
 class I2cLcd:
-    # Constants for LCD commands
+    """
+    Driver for I2C LCD displays with PCF8574 I2C backpack.
+    Supports various display sizes.
+    """
+    # LCD command constants
     LCD_CLEARDISPLAY = 0x01
     LCD_RETURNHOME = 0x02
     LCD_ENTRYMODESET = 0x04
@@ -13,13 +17,13 @@ class I2cLcd:
     LCD_SETCGRAMADDR = 0x40
     LCD_SETDDRAMADDR = 0x80
 
-    # Flags for display entry mode
-    LCD_ENTRYRIGHT = 0x00
+    # Entry mode flags
     LCD_ENTRYLEFT = 0x02
+    LCD_ENTRYRIGHT = 0x00
     LCD_ENTRYSHIFTINCREMENT = 0x01
     LCD_ENTRYSHIFTDECREMENT = 0x00
 
-    # Flags for display on/off control
+    # Display control flags
     LCD_DISPLAYON = 0x04
     LCD_DISPLAYOFF = 0x00
     LCD_CURSORON = 0x02
@@ -27,7 +31,7 @@ class I2cLcd:
     LCD_BLINKON = 0x01
     LCD_BLINKOFF = 0x00
 
-    # Flags for function set
+    # Function set flags
     LCD_8BITMODE = 0x10
     LCD_4BITMODE = 0x00
     LCD_2LINE = 0x08
@@ -35,7 +39,7 @@ class I2cLcd:
     LCD_5x10DOTS = 0x04
     LCD_5x8DOTS = 0x00
 
-    # Flags for backlight control
+    # Backlight control
     LCD_BACKLIGHT = 0x08
     LCD_NOBACKLIGHT = 0x00
 
@@ -44,52 +48,41 @@ class I2cLcd:
     RS_DATA = 0x01
     RS_COMMAND = 0x00
 
-    # Display rotation modes
-    ROTATION_NORMAL = 0
-    ROTATION_90 = 1
-    ROTATION_180 = 2
-    ROTATION_270 = 3
-
-    def __init__(
-        self, i2c, i2c_addr, num_lines=2, num_columns=16, char_size=LCD_5x8DOTS
-    ):
+    def __init__(self, i2c, i2c_addr, num_lines, num_columns, line_offsets, char_size=LCD_5x8DOTS):
         """
-        Initialize the LCD.
+        Initialize the LCD with provided parameters.
 
         Args:
             i2c: I2C bus object
-            i2c_addr: I2C address of the LCD
-            num_lines: Number of display lines (1 or 2)
-            num_columns: Number of characters per line
+            i2c_addr: I2C address of the LCD (typically 0x27 or 0x3F)
+            num_lines: Number of display lines (e.g., 2 for 1602, 4 for 2004)
+            num_columns: Number of characters per line (e.g., 16 for 1602, 20 for 2004)
+            line_offsets: List of DDRAM address offsets for each line
             char_size: Character size (LCD_5x8DOTS or LCD_5x10DOTS)
         """
         self.i2c = i2c
         self.i2c_addr = i2c_addr
         self.num_lines = num_lines
         self.num_columns = num_columns
+        self._line_offsets = line_offsets
         self.cursor_x = 0
         self.cursor_y = 0
         self.backlight = self.LCD_BACKLIGHT
-        self.display_control = (
-            self.LCD_DISPLAYON | self.LCD_CURSOROFF | self.LCD_BLINKOFF
-        )
-        self.display_function = (
-            self.LCD_4BITMODE | self.LCD_2LINE if num_lines > 1 else self.LCD_1LINE
-        )
+        self.display_control = self.LCD_DISPLAYON | self.LCD_CURSOROFF | self.LCD_BLINKOFF
+        self.display_function = self.LCD_4BITMODE | (self.LCD_2LINE if num_lines > 1 else self.LCD_1LINE)
         self.display_function |= char_size
         self.display_mode = self.LCD_ENTRYLEFT | self.LCD_ENTRYSHIFTDECREMENT
-        self.rotation = self.ROTATION_NORMAL
-        self._line_offsets = [0x00, 0x40, 0x14, 0x54]  # Standard line offsets
-
+        
         # Buffer for storing display content
         self.buffer = [[" " for x in range(num_columns)] for y in range(num_lines)]
+        
+        # Debugging: Print configuration
+        print(f"LCD Config: {num_columns}x{num_lines}, Address: {hex(i2c_addr)}, Offsets: {[hex(o) for o in line_offsets]}")
 
-        self._init_display()
-
-    def _init_display(self):
+    def init_display(self):
         """Initialize the display in 4-bit mode."""
-        # Wait for LCD to power on
-        time.sleep_ms(50)
+        # Extended wait for power-on to handle 20x4 displays
+        time.sleep_ms(100)
 
         # Initialization sequence for 4-bit mode
         self._write_nibble(0x30)
@@ -109,6 +102,7 @@ class I2cLcd:
 
         # Turn on display with configured settings
         self.set_display(True)
+        print("LCD Initialized")
 
     def _write_nibble(self, nibble):
         """Write a nibble (4 bits) to the LCD."""
@@ -143,6 +137,7 @@ class I2cLcd:
         for y in range(self.num_lines):
             for x in range(self.num_columns):
                 self.buffer[y][x] = " "
+        print("Display Cleared")
 
     def home(self):
         """Return cursor to home position (0,0)."""
@@ -151,48 +146,17 @@ class I2cLcd:
         self.cursor_x = 0
         self.cursor_y = 0
 
-    def set_rotation(self, rotation):
-        """
-        Set display rotation.
-
-        Args:
-            rotation: One of ROTATION_NORMAL, ROTATION_90, ROTATION_180, or ROTATION_270
-        """
-        if rotation not in [
-            self.ROTATION_NORMAL,
-            self.ROTATION_90,
-            self.ROTATION_180,
-            self.ROTATION_270,
-        ]:
-            raise ValueError("Invalid rotation value")
-
-        self.rotation = rotation
-        self.refresh()  # Refresh display with new rotation
-
-    def _transform_coordinates(self, x, y):
-        """Transform coordinates based on current rotation."""
-        if self.rotation == self.ROTATION_NORMAL:
-            return x, y
-        elif self.rotation == self.ROTATION_90:
-            return self.num_lines - 1 - y, x
-        elif self.rotation == self.ROTATION_180:
-            return self.num_columns - 1 - x, self.num_lines - 1 - y
-        elif self.rotation == self.ROTATION_270:
-            return y, self.num_columns - 1 - x
-
     def move_to(self, x, y):
-        """Move cursor to specified position, respecting rotation."""
-        # Apply rotation transformation
-        tx, ty = self._transform_coordinates(x, y)
-
-        if tx >= self.num_columns or ty >= self.num_lines:
+        """Move cursor to specified position."""
+        if x >= self.num_columns or y >= self.num_lines:
+            print(f"Invalid move_to: x={x}, y={y} (max: {self.num_columns-1}x{self.num_lines-1})")
             return  # Ignore invalid positions
 
-        self.cursor_x = x  # Store logical position
+        self.cursor_x = x
         self.cursor_y = y
 
         # Set physical cursor position
-        address = self._line_offsets[ty] + tx
+        address = self._line_offsets[y] + x
         self._write_command(self.LCD_SETDDRAMADDR | address)
 
     def putchar(self, char):
@@ -208,11 +172,8 @@ class I2cLcd:
         # Store in buffer and display
         self.buffer[self.cursor_y][self.cursor_x] = char
 
-        # Apply rotation transformation
-        tx, ty = self._transform_coordinates(self.cursor_x, self.cursor_y)
-
-        # Set cursor to transformed position
-        address = self._line_offsets[ty] + tx
+        # Set cursor position
+        address = self._line_offsets[self.cursor_y] + self.cursor_x
         self._write_command(self.LCD_SETDDRAMADDR | address)
 
         # Write the character
@@ -236,7 +197,8 @@ class I2cLcd:
         self.putstr(text)
 
     def create_char(self, location, charmap):
-        """Store a custom character in CGRAM.
+        """
+        Store a custom character in CGRAM.
 
         Args:
             location: CGRAM location (0-7)
@@ -249,7 +211,7 @@ class I2cLcd:
         self.move_to(self.cursor_x, self.cursor_y)  # Return to previous position
 
     def set_display(self, on):
-        """Turn the display on/off with boolean value."""
+        """Turn the display on/off."""
         if on:
             self.display_control |= self.LCD_DISPLAYON
         else:
@@ -257,7 +219,7 @@ class I2cLcd:
         self._write_command(self.LCD_DISPLAYCONTROL | self.display_control)
 
     def set_cursor(self, on):
-        """Turn the cursor on/off with boolean value."""
+        """Turn the cursor on/off."""
         if on:
             self.display_control |= self.LCD_CURSORON
         else:
@@ -265,7 +227,7 @@ class I2cLcd:
         self._write_command(self.LCD_DISPLAYCONTROL | self.display_control)
 
     def set_blink(self, on):
-        """Turn cursor blinking on/off with boolean value."""
+        """Turn cursor blinking on/off."""
         if on:
             self.display_control |= self.LCD_BLINKON
         else:
@@ -289,19 +251,15 @@ class I2cLcd:
             time.sleep_ms(1)
 
     def set_text_direction(self, left_to_right):
-        """Set text direction with boolean (True for left-to-right)."""
+        """Set text direction (True for left-to-right)."""
         if left_to_right:
-            self.display_mode = (
-                self.display_mode & ~self.LCD_ENTRYRIGHT
-            ) | self.LCD_ENTRYLEFT
+            self.display_mode = (self.display_mode & ~self.LCD_ENTRYRIGHT) | self.LCD_ENTRYLEFT
         else:
-            self.display_mode = (
-                self.display_mode & ~self.LCD_ENTRYLEFT
-            ) | self.LCD_ENTRYRIGHT
+            self.display_mode = (self.display_mode & ~self.LCD_ENTRYLEFT) | self.LCD_ENTRYRIGHT
         self._write_command(self.LCD_ENTRYMODESET | self.display_mode)
 
     def set_autoscroll(self, on):
-        """Enable/disable automatic scrolling with boolean."""
+        """Enable/disable automatic scrolling."""
         if on:
             self.display_mode |= self.LCD_ENTRYSHIFTINCREMENT
         else:
@@ -309,7 +267,7 @@ class I2cLcd:
         self._write_command(self.LCD_ENTRYMODESET | self.display_mode)
 
     def set_backlight(self, on):
-        """Turn backlight on/off with boolean."""
+        """Turn backlight on/off."""
         self.backlight = self.LCD_BACKLIGHT if on else self.LCD_NOBACKLIGHT
         self._write_command(0x00)  # Send dummy command to update backlight
 
@@ -320,7 +278,6 @@ class I2cLcd:
         Args:
             level: Contrast level (0-255)
         """
-        # Not all displays support this, but for those that do:
         try:
             # Many I2C contrast controllers use register 0x2F
             self.i2c.writeto(self.i2c_addr, bytearray([0x2F, level]))
@@ -331,8 +288,7 @@ class I2cLcd:
         """Refresh the entire display from the buffer."""
         for y in range(self.num_lines):
             for x in range(self.num_columns):
-                tx, ty = self._transform_coordinates(x, y)
-                address = self._line_offsets[ty] + tx
+                address = self._line_offsets[y] + x
                 self._write_command(self.LCD_SETDDRAMADDR | address)
                 self._write_data(ord(self.buffer[y][x]))
 
@@ -349,7 +305,6 @@ class I2cLcd:
             width = self.num_columns
 
         # Create custom characters for progress bar if not already created
-        # Block characters: 0/5, 1/5, 2/5, 3/5, 4/5, 5/5 filled
         if not hasattr(self, "_progress_chars_created"):
             self._create_progress_bar_chars()
             self._progress_chars_created = True
@@ -360,7 +315,7 @@ class I2cLcd:
         self.move_to(0, row)
         # Draw full blocks
         for i in range(filled_blocks):
-            self._write_data(255)  # Solid block character (custom or built-in)
+            self._write_data(255)  # Solid block character
 
         # Draw partial block for remainder
         if filled_blocks < width:
@@ -375,43 +330,29 @@ class I2cLcd:
 
     def _create_progress_bar_chars(self):
         """Create custom characters for progress bar visualization."""
-        # Create 5 custom characters with increasing fill levels
-        # Each character is 5x8 pixels (5 columns, 8 rows)
-
         # Character 1: 1/5 filled
         self.create_char(
             1,
-            bytearray(
-                [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111]
-            ),
+            bytearray([0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111])
         )
 
         # Character 2: 2/5 filled
         self.create_char(
             2,
-            bytearray(
-                [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111, 0b11111]
-            ),
+            bytearray([0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111, 0b11111])
         )
 
         # Character 3: 3/5 filled
         self.create_char(
             3,
-            bytearray(
-                [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111, 0b11111, 0b11111]
-            ),
+            bytearray([0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111, 0b11111, 0b11111])
         )
 
         # Character 4: 4/5 filled
         self.create_char(
             4,
-            bytearray(
-                [0b00000, 0b00000, 0b00000, 0b00000, 0b11111, 0b11111, 0b11111, 0b11111]
-            ),
+            bytearray([0b00000, 0b00000, 0b00000, 0b00000, 0b11111, 0b11111, 0b11111, 0b11111])
         )
-
-        # Character 5 would be completely filled, which is usually available
-        # as a built-in character with code 255
 
     def scroll_text(self, row, text, delay=300, repeat=1):
         """
@@ -421,7 +362,7 @@ class I2cLcd:
             row: Row to display scrolling text
             text: Text to scroll
             delay: Delay between scrolls in milliseconds
-            repeat: Number of times to repeat the scroll (0 for infinite)
+            repeat: Number of times to repeat (0 for infinite)
         """
         padded_text = " " * self.num_columns + text + " " * self.num_columns
 
@@ -429,7 +370,7 @@ class I2cLcd:
         while repeat == 0 or count < repeat:
             for i in range(len(padded_text) - self.num_columns):
                 self.move_to(0, row)
-                self.putstr(padded_text[i : i + self.num_columns])
+                self.putstr(padded_text[i:i + self.num_columns])
                 time.sleep_ms(delay)
             count += 1
 
@@ -451,64 +392,64 @@ class I2cLcd:
                 if len(frame) < self.num_columns:
                     frame = frame + " " * (self.num_columns - len(frame))
                 else:
-                    frame = frame[: self.num_columns]
+                    frame = frame[:self.num_columns]
                 self.putstr(frame)
                 time.sleep_ms(delay)
             count += 1
 
-    # Alias the old methods to use the new combined methods for backward compatibility
+    # Alias methods for backward compatibility
     def display_on(self):
-        """Turn the display on. (Alias for backward compatibility)"""
+        """Turn the display on."""
         self.set_display(True)
 
     def display_off(self):
-        """Turn the display off. (Alias for backward compatibility)"""
+        """Turn the display off."""
         self.set_display(False)
 
     def cursor_on(self):
-        """Turn the cursor on. (Alias for backward compatibility)"""
+        """Turn the cursor on."""
         self.set_cursor(True)
 
     def cursor_off(self):
-        """Turn the cursor off. (Alias for backward compatibility)"""
+        """Turn the cursor off."""
         self.set_cursor(False)
 
     def blink_on(self):
-        """Turn cursor blinking on. (Alias for backward compatibility)"""
+        """Turn cursor blinking on."""
         self.set_blink(True)
 
     def blink_off(self):
-        """Turn cursor blinking off. (Alias for backward compatibility)"""
+        """Turn cursor blinking off."""
         self.set_blink(False)
 
     def scroll_left(self):
-        """Scroll display left. (Alias for backward compatibility)"""
+        """Scroll display left."""
         self.scroll(-1)
 
     def scroll_right(self):
-        """Scroll display right. (Alias for backward compatibility)"""
+        """Scroll display right."""
         self.scroll(1)
 
     def left_to_right(self):
-        """Set text to flow left to right. (Alias for backward compatibility)"""
+        """Set text to flow left to right."""
         self.set_text_direction(True)
 
     def right_to_left(self):
-        """Set text to flow right to left. (Alias for backward compatibility)"""
+        """Set text to flow right to left."""
         self.set_text_direction(False)
 
     def autoscroll_on(self):
-        """Enable automatic scrolling. (Alias for backward compatibility)"""
+        """Enable automatic scrolling."""
         self.set_autoscroll(True)
 
     def autoscroll_off(self):
-        """Disable automatic scrolling. (Alias for backward compatibility)"""
+        """Disable automatic scrolling."""
         self.set_autoscroll(False)
 
     def backlight_on(self):
-        """Turn backlight on. (Alias for backward compatibility)"""
+        """Turn backlight on."""
         self.set_backlight(True)
 
     def backlight_off(self):
-        """Turn backlight off. (Alias for backward compatibility)"""
+        """Turn backlight off."""
         self.set_backlight(False)
